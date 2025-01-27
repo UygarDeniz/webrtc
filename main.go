@@ -13,7 +13,7 @@ var (
 	clients   = make(map[*websocket.Conn]bool)
 	clientsMu sync.Mutex
 	upgrader  = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true }, // Allow all origins for development
+		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 )
 
@@ -33,7 +33,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("Client disconnected")
 	}()
 
-	// Add client to the clients map
 	clientsMu.Lock()
 	clients[conn] = true
 	clientsMu.Unlock()
@@ -52,7 +51,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("Received message: %s", msg)
 
-		// Broadcast the message to all connected clients except the sender
 		clientsMu.Lock()
 		for client := range clients {
 			if client != conn {
@@ -70,13 +68,39 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Println("Exiting handleWebSocket loop")
 }
 
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	http.HandleFunc("/ws", handleWebSocket)
+	// Add routes
+	http.HandleFunc("/ws", corsMiddleware(handleWebSocket))
+	http.HandleFunc("/health", corsMiddleware(healthCheck))
+	http.HandleFunc("/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("WebRTC Signaling Server"))
+	}))
+
 	log.Printf("Server running on port %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
